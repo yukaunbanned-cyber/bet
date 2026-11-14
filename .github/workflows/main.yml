@@ -13,7 +13,7 @@ jobs:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 2. Auto-Generate Seluruh File Proyek 1xBet AI Sniper
+      - name: 2. Auto-Generate Seluruh File Proyek 1xBet AI Sniper (Fixed)
         run: |
           rm -rf app build.gradle.kts settings.gradle.kts gradle.properties
           mkdir -p app/src/main/java/com/onexbet/aisniper
@@ -139,7 +139,6 @@ jobs:
           import android.os.VibrationEffect
           import android.os.Vibrator
           import android.text.InputType
-          import android.text.TextUtils
           import android.util.TypedValue
           import android.view.Gravity
           import android.view.View
@@ -155,7 +154,6 @@ jobs:
           import android.widget.Button
           import android.widget.EditText
           import android.widget.FrameLayout
-          import android.widget.HorizontalScrollView
           import android.widget.LinearLayout
           import android.widget.ScrollView
           import android.widget.TextView
@@ -171,9 +169,9 @@ jobs:
           import java.util.Date
           import java.util.Locale
           import java.util.concurrent.Executors
+          import kotlin.math.abs
           import kotlin.math.exp
           import kotlin.math.max
-          import kotlin.math.min
           import kotlin.math.pow
           import kotlin.random.Random
 
@@ -186,14 +184,11 @@ jobs:
                   const val KEY_MIN_ODDS = "min_odds"
                   const val KEY_MAX_ODDS = "max_odds"
                   const val KEY_BASE_STAKE = "base_stake"
-                  const val KEY_STAKE_MODE = "stake_mode" // 0=Flat, 1=Kelly AI Smart
+                  const val KEY_STAKE_MODE = "stake_mode"
                   const val KEY_STOP_LOSS = "stop_loss"
                   const val KEY_TAKE_PROFIT = "take_profit"
                   const val KEY_HUMAN_DELAY = "human_delay_ms"
                   const val KEY_GEMINI_API = "gemini_api_key"
-                  const val KEY_CUSTOM_ODDS_SEL = "custom_odds_selector"
-                  const val KEY_CUSTOM_STAKE_SEL = "custom_stake_selector"
-                  const val KEY_CUSTOM_BETBTN_SEL = "custom_betbtn_selector"
                   const val KEY_BALANCE = "sim_balance"
               }
 
@@ -213,7 +208,7 @@ jobs:
               data class AIDecision(
                   val match: ScrapedMatch,
                   val pickLabel: String,
-                  val marketCode: String, // "1", "X", "2"
+                  val marketCode: String,
                   val targetOdd: Double,
                   val targetDomIndex: Int,
                   val homeXG: Double,
@@ -226,7 +221,7 @@ jobs:
                   val reasoning: String
               )
 
-              data classExecutedSlip(
+              data class ExecutedSlip(
                   val slipId: String,
                   val time: String,
                   val matchTitle: String,
@@ -235,7 +230,7 @@ jobs:
                   val stake: Long,
                   val potentialWin: Long,
                   val confidence: Int,
-                  var status: String // "ACTIVE", "WIN", "LOSE"
+                  var status: String
               )
 
               private lateinit var prefs: SharedPreferences
@@ -244,28 +239,21 @@ jobs:
               private var toneGen: ToneGenerator? = null
               private var vibrator: Vibrator? = null
 
-              // State Konfigurasi
               private var mirrorUrl = "https://1xbet.com/id/live/football"
               private var minConfidence = 82
               private var minOdds = 1.50
               private var maxOdds = 3.60
               private var baseStake = 50000L
-              private var stakeMode = 1 // 0=Flat, 1=Kelly Smart Stake
+              private var stakeMode = 1
               private var stopLossLimit = 300000L
               private var takeProfitTarget = 500000L
               private var humanDelayMs = 2400L
               private var geminiApiKey = ""
 
-              // Custom CSS Selectors (Multi-Fallback untuk DOM 1xBet)
-              private var customOddsSelector = ".c-bets__bet, [data-market], .bet_type, .odd-btn"
-              private var customStakeSelector = "input.cpn-bet__input, input[type='number'], .stake-input"
-              private var customBetBtnSelector = ".cpn-btns__btn, .place-bet-btn, button.bet-submit"
-
-              // Runtime State
               private var isAutopilotRunning = false
               private var isExecutingClickSequence = false
               private var isPanelMinimized = false
-              private var activeBottomTab = "RADAR" // "RADAR", "SLIPS", "SETTINGS"
+              private var activeBottomTab = "RADAR"
 
               private var currentBalance = 1500000L
               private var dailyNetProfit = 0L
@@ -274,7 +262,6 @@ jobs:
               private val alreadyBetMatchIds = mutableSetOf<String>()
               private var latestAIDecision: AIDecision? = null
 
-              // UI References
               private var webView: WebView? = null
               private var topStatusTv: TextView? = null
               private var balanceTv: TextView? = null
@@ -285,19 +272,17 @@ jobs:
               private var radarSummaryTv: TextView? = null
               private var terminalLogTv: TextView? = null
 
-              // Loop Runnable Otomatis
               private val autopilotCycleRunnable = object : Runnable {
                   override fun run() {
                       if (!isAutopilotRunning) return
 
-                      // Cek Pengaman Saldo (Stop-Loss & Take-Profit)
                       if (dailyNetProfit <= -stopLossLimit) {
-                          appendLog("🛑 [STOP-LOSS] Batas rugi harian (-Rp ${formatRp(stopLossLimit)}) tercapai! AI Auto-Pilot dihentikan otomatis.")
+                          appendLog("🛑 [STOP-LOSS] Batas rugi harian (-Rp ${formatRp(stopLossLimit)}) tercapai! AI Auto-Pilot berhenti otomatis.")
                           stopAutopilot()
                           return
                       }
                       if (dailyNetProfit >= takeProfitTarget) {
-                          appendLog("🎯 [TAKE-PROFIT] Target profit harian (+Rp ${formatRp(takeProfitTarget)}) tercapai! AI Auto-Pilot berhenti untuk mengamankan saldo.")
+                          appendLog("🎯 [TAKE-PROFIT] Target profit harian (+Rp ${formatRp(takeProfitTarget)}) tercapai! AI Auto-Pilot berhenti otomatis.")
                           stopAutopilot()
                           return
                       }
@@ -351,9 +336,6 @@ jobs:
                   takeProfitTarget = prefs.getLong(KEY_TAKE_PROFIT, 500000L)
                   humanDelayMs = prefs.getLong(KEY_HUMAN_DELAY, 2400L).coerceIn(1200L, 6000L)
                   geminiApiKey = prefs.getString(KEY_GEMINI_API, "") ?: ""
-                  customOddsSelector = prefs.getString(KEY_CUSTOM_ODDS_SEL, customOddsSelector) ?: customOddsSelector
-                  customStakeSelector = prefs.getString(KEY_CUSTOM_STAKE_SEL, customStakeSelector) ?: customStakeSelector
-                  customBetBtnSelector = prefs.getString(KEY_CUSTOM_BETBTN_SEL, customBetBtnSelector) ?: customBetBtnSelector
                   currentBalance = prefs.getLong(KEY_BALANCE, 1500000L)
               }
 
@@ -369,16 +351,10 @@ jobs:
                       .putLong(KEY_TAKE_PROFIT, takeProfitTarget)
                       .putLong(KEY_HUMAN_DELAY, humanDelayMs)
                       .putString(KEY_GEMINI_API, geminiApiKey)
-                      .putString(KEY_CUSTOM_ODDS_SEL, customOddsSelector)
-                      .putString(KEY_CUSTOM_STAKE_SEL, customStakeSelector)
-                      .putString(KEY_CUSTOM_BETBTN_SEL, customBetBtnSelector)
                       .putLong(KEY_BALANCE, currentBalance)
                       .apply()
               }
 
-              // =====================================================================
-              // MASTER UI LAYOUT (TOP BAR + WEBVIEW + FLOATING AI OVERLAY)
-              // =====================================================================
               @SuppressLint("SetJavaScriptEnabled")
               private fun buildMainScreen(): View {
                   val root = LinearLayout(this).apply {
@@ -390,7 +366,6 @@ jobs:
                       )
                   }
 
-                  // 1. TOP CONTROL BAR (1xBet Account & Master AI Autopilot Switch)
                   val topBar = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
                       setBackgroundColor(Color.parseColor("#0D1B30"))
@@ -423,7 +398,6 @@ jobs:
                   titleCol.addView(statusSub)
                   row1.addView(titleCol)
 
-                  // Master START / STOP AI AUTO-BET Button
                   val masterBtn = TextView(this).apply {
                       text = "▶️ START AI AUTO-BET"
                       setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
@@ -439,7 +413,6 @@ jobs:
                   row1.addView(masterBtn)
                   topBar.addView(row1)
 
-                  // Row 2: Saldo, Profit & Quick WebView Actions
                   val row2 = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
                       gravity = Gravity.CENTER_VERTICAL
@@ -478,7 +451,6 @@ jobs:
                   }
                   row2.addView(spacer)
 
-                  // Button Buka Link 1xBet Asli
                   val btnRealUrl = TextView(this).apply {
                       text = "🌐 Web 1xBet"
                       setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
@@ -493,7 +465,6 @@ jobs:
                   }
                   row2.addView(btnRealUrl)
 
-                  // Button Mode Simulasi DOM 1xBet
                   val btnSandbox = TextView(this).apply {
                       text = "🧪 Simulasi DOM"
                       setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
@@ -505,7 +476,7 @@ jobs:
                       lp.leftMargin = dp(5)
                       layoutParams = lp
                       setOnClickListener {
-                          appendLog("[SANDBOX] Memuat halaman simulasi 1xBet Live untuk tes Auto-Clicker...")
+                          appendLog("[SANDBOX] Memuat halaman simulasi 1xBet Live...")
                           loadMockSandbox1xBetPage()
                       }
                   }
@@ -514,7 +485,6 @@ jobs:
                   topBar.addView(row2)
                   root.addView(topBar)
 
-                  // 2. MIDDLE AREA: LIVE 1xBET WEBVIEW DENGAN JS BRIDGE
                   val wv = WebView(this).apply {
                       layoutParams = LinearLayout.LayoutParams(
                           ViewGroup.LayoutParams.MATCH_PARENT,
@@ -550,7 +520,6 @@ jobs:
                   webView = wv
                   root.addView(wv)
 
-                  // 3. BOTTOM AREA: FLOATING AI OVERLAY & NAVIGATION TABS
                   val bottomPanel = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
                       setBackgroundColor(Color.parseColor("#0B1526"))
@@ -561,7 +530,6 @@ jobs:
                   }
                   bottomOverlayContainer = bottomPanel
 
-                  // Tab Navigation Bar + Minimize Toggle
                   val navBar = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
                       gravity = Gravity.CENTER_VERTICAL
@@ -637,9 +605,6 @@ jobs:
                   panel.requestLayout()
               }
 
-              // =====================================================================
-              // RENDER ISI TAB BAWAH (RADAR AI, SLIPS, SETTINGS)
-              // =====================================================================
               private fun renderActiveBottomTab() {
                   val frame = dynamicTabContentContainer ?: return
                   frame.removeAllViews()
@@ -660,7 +625,6 @@ jobs:
                       )
                   }
 
-                  // AI Live Decision Card
                   val decisionCard = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
                       gravity = Gravity.CENTER_VERTICAL
@@ -709,7 +673,6 @@ jobs:
                   decisionCard.addView(scanOnceBtn)
                   layout.addView(decisionCard)
 
-                  // Terminal Log Box
                   val scroll = ScrollView(this).apply {
                       background = roundedBg("#050A14", "#1E293B", 8)
                       setPadding(dp(8), dp(6), dp(8), dp(6))
@@ -956,9 +919,9 @@ jobs:
                   rowRisk.addView(tpInput)
                   container.addView(rowRisk)
 
-                  addFieldLabel("🔑 Opsional: Gemini API Key (Untuk Validasi AI Eksternal):")
+                  addFieldLabel("🔑 Opsional: Gemini API Key (Validasi AI Eksternal):")
                   val apiInput = createInput(geminiApiKey)
-                  apiInput.hint = "Kosongkan jika ingin memakai mesin statistik Poisson/xG internal"
+                  apiInput.hint = "Kosongkan jika memakai mesin statistik Poisson/xG internal"
                   container.addView(apiInput)
 
                   val saveBtn = Button(this).apply {
@@ -973,7 +936,8 @@ jobs:
                       layoutParams = lp
                       setOnClickListener {
                           val oldUrl = mirrorUrl
-                          mirrorUrl = urlInput.text.toString().trim().ifEmpty { "https://1xbet.com/id/live/football" }
+                          val rawUrl = urlInput.text.toString().trim()
+                          mirrorUrl = if (rawUrl.isEmpty()) "https://1xbet.com/id/live/football" else rawUrl
                           minConfidence = (confInput.text.toString().toIntOrNull() ?: 82).coerceIn(65, 98)
                           minOdds = (minOddInput.text.toString().toDoubleOrNull() ?: 1.50).coerceIn(1.10, 10.0)
                           baseStake = (stakeInput.text.toString().toLongOrNull() ?: 50000L).coerceAtLeast(1000L)
@@ -996,9 +960,6 @@ jobs:
                   return scroll
               }
 
-              // =====================================================================
-              // START / STOP AI AUTOPILOT CONTROLLER
-              // =====================================================================
               private fun startAutopilot() {
                   isAutopilotRunning = true
                   masterToggleBtn?.text = "⏹️ STOP AI AUTO-BET"
@@ -1018,36 +979,31 @@ jobs:
                   uiHandler.removeCallbacks(autopilotCycleRunnable)
               }
 
-              // =====================================================================
-              // JAVASCRIPT DOM SCRAPER INJECTOR (MEMBACA TIM & ODDS DARI WEBVIEW)
-              // =====================================================================
               private fun triggerDOMScrapeOnWebView() {
                   val jsScraper = """
                       (function() {
                           try {
                               var results = [];
-                              var allOddButtons = Array.from(document.querySelectorAll('$customOddsSelector'));
+                              var allOddButtons = Array.from(document.querySelectorAll('.c-bets__bet, [data-market], .bet_type, .odd-btn'));
 
-                              // Fallback pintar: cari semua elemen yang berisi angka desimal odds (misal 1.45 - 9.50)
                               if (allOddButtons.length < 3) {
                                   var candidates = Array.from(document.querySelectorAll('button, span, div, a'));
                                   allOddButtons = candidates.filter(function(el) {
                                       if (el.children.length > 2) return false;
                                       var txt = (el.innerText || '').trim();
-                                      return /^[1-9]\.[0-9]{2}$/.test(txt);
+                                      var num = parseFloat(txt);
+                                      return !isNaN(num) && num >= 1.15 && num <= 15.0 && txt.indexOf('.') !== -1 && txt.length <= 6;
                                   });
                               }
 
-                              // Tandai setiap tombol odds dengan atribut data-ai-odd-idx agar mudah diklik oleh Auto-Clicker
                               allOddButtons.forEach(function(btn, idx) {
                                   btn.setAttribute('data-ai-odd-idx', String(idx));
                               });
 
-                              // Cari kartu pertandingan di halaman 1xBet
                               var matchCards = Array.from(document.querySelectorAll('.c-events__item, .dashboard-game-block, .match-card-1x, [data-match-card]'));
 
                               if (matchCards.length > 0) {
-                                  matchCards.forEach(function(card, mIdx) {
+                                  matchCards.forEach(function(card) {
                                       var teamEls = card.querySelectorAll('.c-events__team, .team-name, [data-team]');
                                       var home = teamEls.length > 0 ? teamEls[0].innerText.trim() : '';
                                       var away = teamEls.length > 1 ? teamEls[1].innerText.trim() : '';
@@ -1084,17 +1040,15 @@ jobs:
                                       }
                                   });
                               } else if (allOddButtons.length >= 3) {
-                                  // Kelompokkan per 3 tombol (1X2) jika struktur kartu custom
                                   for (var k = 0; k + 2 < allOddButtons.length && results.length < 8; k += 3) {
                                       var b1 = allOddButtons[k];
                                       var bX = allOddButtons[k+1];
                                       var b2 = allOddButtons[k+2];
-                                      var parentCard = b1.closest('div, li, tr') || document.body;
-                                      var rawText = (parentCard.innerText || 'Match #' + (k/3 + 1)).split('\n')[0].trim();
+                                      var matchNum = Math.floor(k / 3) + 1;
                                       results.push({
                                           matchId: 'DOM_Match_' + k,
-                                          homeTeam: rawText.take ? rawText : ('Tim Kandang #' + (k/3 + 1)),
-                                          awayTeam: 'Tim Tandang #' + (k/3 + 1),
+                                          homeTeam: 'Tim Kandang #' + matchNum,
+                                          awayTeam: 'Tim Tandang #' + matchNum,
                                           league: '1xBet Live Stream',
                                           odd1: parseFloat(b1.innerText) || 1.80,
                                           oddX: parseFloat(bX.innerText) || 3.45,
@@ -1116,9 +1070,6 @@ jobs:
                   webView?.evaluateJavascript(jsScraper, null)
               }
 
-              // =====================================================================
-              // JAVASCRIPT BRIDGE (KOMUNIKASI DARI DOM WEBVIEW KE MESIN AI KOTLIN)
-              // =====================================================================
               inner class AndroidDOMBridge {
 
                   @JavascriptInterface
@@ -1147,20 +1098,21 @@ jobs:
 
                               if (matches.isEmpty()) {
                                   uiHandler.post {
-                                      appendLog("⚠️ [DOM-SCRAPER] Belum menemukan elemen odds di layar saat ini. Geser halaman ke daftar pertandingan sepak bola.")
+                                      appendLog("⚠️ [DOM-SCRAPER] Belum menemukan elemen odds di layar saat ini.")
                                   }
                                   return@execute
                               }
 
                               uiHandler.post {
-                                  appendLog("📡 [DOM-SCRAPER] Berhasil membaca ${matches.size} pertandingan aktif dari layar 1xBet.")
+                                  appendLog("📡 [DOM-SCRAPER] Berhasil membaca ${matches.size} pertandingan dari layar 1xBet.")
                               }
 
-                              // Jalankan analisa Poisson Distribution, xG & Value Bet Detector
                               val candidateMatches = matches.filter { !alreadyBetMatchIds.contains(it.matchId) }
-                              val pool = candidateMatches.ifEmpty {
+                              val pool = if (candidateMatches.isEmpty()) {
                                   alreadyBetMatchIds.clear()
                                   matches
+                              } else {
+                                  candidateMatches
                               }
 
                               var bestDecision: AIDecision? = null
@@ -1172,7 +1124,6 @@ jobs:
                               }
 
                               if (bestDecision != null) {
-                                  // Jika pengguna mengisi Gemini API Key, perkaya analisa secara opsional
                                   val finalDecision = if (geminiApiKey.isNotBlank()) {
                                       enrichWithOptionalGeminiAPI(bestDecision)
                                   } else {
@@ -1194,10 +1145,10 @@ jobs:
                                       if (finalDecision.confidenceScore >= minConfidence &&
                                           finalDecision.targetOdd in minOdds..maxOdds
                                       ) {
-                                          appendLog("✅ [FILTER PASS] Confidence ${finalDecision.confidenceScore}% >= $minConfidence%. Memulai Auto-Clicker (Jeda manusia ${humanDelayMs}ms)...")
+                                          appendLog("✅ [FILTER PASS] Confidence ${finalDecision.confidenceScore}% >= $minConfidence%. Memulai Auto-Clicker...")
                                           executeHumanizedAutoBetSequence(finalDecision)
                                       } else {
-                                          appendLog("⏭️ [SKIP] Confidence ${finalDecision.confidenceScore}% atau Odds ${finalDecision.targetOdd} belum memenuhi syarat aman.")
+                                          appendLog("⏭️ [SKIP] Confidence ${finalDecision.confidenceScore}% belum melewati batas aman.")
                                       }
                                   }
                               }
@@ -1246,7 +1197,7 @@ jobs:
                           updateHeaderBalanceUI()
                           playBeep()
                           vibratePhone()
-                          appendLog("🎉 [BET ACCEPTED] Slip $slipId berhasil dipasang di 1xBet! ($matchTitle | $pick @$odds | Stake Rp ${formatRp(stake)})")
+                          appendLog("🎉 [BET ACCEPTED] Slip $slipId berhasil dipasang! ($matchTitle | $pick @$odds | Stake Rp ${formatRp(stake)})")
                           if (activeBottomTab == "SLIPS") {
                               renderActiveBottomTab()
                           }
@@ -1262,11 +1213,7 @@ jobs:
                   }
               }
 
-              // =====================================================================
-              // MESIN KUANTITATIF AI: POISSON DISTRIBUTION, EXPECTED GOALS (xG) & VALUE BET
-              // =====================================================================
               private fun analyzeMatchWithPoissonAndXG(m: ScrapedMatch): AIDecision {
-                  // Hitung Implied Probability dari Odds 1xBet (dikurangi margin bandar / overround)
                   val rawP1 = 1.0 / m.odd1.coerceAtLeast(1.05)
                   val rawPX = 1.0 / m.oddX.coerceAtLeast(1.05)
                   val rawP2 = 1.0 / m.odd2.coerceAtLeast(1.05)
@@ -1275,12 +1222,10 @@ jobs:
                   val fairP1 = rawP1 / overround
                   val fairP2 = rawP2 / overround
 
-                  // Estimasi Expected Goals (xG) berbasis kekuatan tim + faktor momentum deterministik
                   val teamHashFactor = ((m.homeTeam.hashCode() xor m.awayTeam.hashCode()) and 0x7FFFFFFF) % 100 / 100.0
                   val homeXG = (1.15 + (fairP1 * 1.45) + (teamHashFactor * 0.35)).coerceIn(0.45, 3.20)
                   val awayXG = (0.90 + (fairP2 * 1.35) + ((1.0 - teamHashFactor) * 0.30)).coerceIn(0.35, 2.85)
 
-                  // Hitung distribusi probabilitas skor (0-0 s/d 5-5) menggunakan rumus Poisson: P(k) = (λ^k * e^-λ) / k!
                   var probHomeWin = 0.0
                   var probDraw = 0.0
                   var probAwayWin = 0.0
@@ -1298,13 +1243,11 @@ jobs:
                       }
                   }
 
-                  // Normalisasi probabilitas model AI
                   val totalModelProb = (probHomeWin + probDraw + probAwayWin).coerceAtLeast(0.01)
                   probHomeWin /= totalModelProb
                   probDraw /= totalModelProb
                   probAwayWin /= totalModelProb
 
-                  // Bandingkan Model AI vs Implied Odds 1xBet untuk mencari Value Edge tertinggi
                   val edge1 = (probHomeWin - rawP1) * 100.0
                   val edgeX = (probDraw - rawPX) * 100.0
                   val edge2 = (probAwayWin - rawP2) * 100.0
@@ -1334,7 +1277,6 @@ jobs:
                       impliedProb = rawP2
                       bestEdge = max(2.2, edge2 + 4.0)
                   } else {
-                      // Pilih favorit dengan odds paling masuk di rentang aman
                       if (m.odd1 <= m.odd2) {
                           pickCode = "1"
                           pickLabel = "1 (Home Win - ${m.homeTeam})"
@@ -1356,7 +1298,6 @@ jobs:
 
                   val rawConfidence = (68.0 + (trueProb * 24.0) + (bestEdge * 1.4)).toInt().coerceIn(72, 96)
 
-                  // Hitung Stake (Flat vs Kelly Smart Stake)
                   val finalStake = if (stakeMode == 1 && rawConfidence >= 86) {
                       val multiplier = 1.0 + ((rawConfidence - 82) * 0.08)
                       ((baseStake * multiplier) / 1000L).toLong() * 1000L
@@ -1377,7 +1318,7 @@ jobs:
                       valueEdgePercent = bestEdge,
                       confidenceScore = rawConfidence,
                       recommendedStake = finalStake,
-                      reasoning = "Poisson xG ${String.format(Locale.US, "%.2f", homeXG)} vs ${String.format(Locale.US, "%.2f", awayXG)}, Value Edge +${String.format(Locale.US, "%.1f", bestEdge)}%"
+                      reasoning = "Poisson xG ${String.format(Locale.US, "%.2f", homeXG)} vs ${String.format(Locale.US, "%.2f", awayXG)}"
                   )
               }
 
@@ -1397,7 +1338,7 @@ jobs:
                           readTimeout = 4500
                           doOutput = true
                       }
-                      val prompt = "Berikan 1 kalimat singkat alasan taktik sepak bola untuk mendukung pilihan ${decision.pickLabel} pada laga ${decision.match.homeTeam} vs ${decision.match.awayTeam}."
+                      val prompt = "Berikan 1 kalimat alasan taktik untuk mendukung ${decision.pickLabel} pada laga ${decision.match.homeTeam} vs ${decision.match.awayTeam}."
                       val body = JSONObject().apply {
                           put("contents", JSONArray().put(JSONObject().apply {
                               put("parts", JSONArray().put(JSONObject().put("text", prompt)))
@@ -1426,9 +1367,6 @@ jobs:
                   }
               }
 
-              // =====================================================================
-              // HUMANIZED AUTO-CLICKER INJECTOR (KLIK ODDS -> ISI STAKE -> PLACE BET)
-              // =====================================================================
               private fun executeHumanizedAutoBetSequence(d: AIDecision) {
                   if (isExecutingClickSequence) return
                   isExecutingClickSequence = true
@@ -1437,6 +1375,11 @@ jobs:
                   val jitter2 = humanDelayMs + Random.nextLong(-200L, 500L)
                   val safeMatchTitle = "${d.match.homeTeam} vs ${d.match.awayTeam}".replace("'", "")
                   val safePick = d.pickLabel.replace("'", "")
+                  val domIdx = d.targetDomIndex
+                  val oddVal = d.targetOdd
+                  val stakeVal = d.recommendedStake
+                  val matchIdVal = d.match.matchId
+                  val confVal = d.confidenceScore
 
                   val jsAutoClicker = """
                       (function() {
@@ -1476,43 +1419,39 @@ jobs:
                               return true;
                           }
 
-                          // LANGKAH 1: Klik tombol Odds target di halaman 1xBet
-                          var targetOddBtn = document.querySelector('[data-ai-odd-idx="${d.targetDomIndex}"]');
+                          var targetOddBtn = document.querySelector('[data-ai-odd-idx="$domIdx"]');
                           if (!targetOddBtn) {
-                              window.AndroidBridge.onScraperError('Tombol odds index #${d.targetDomIndex} tidak ditemukan.');
+                              window.AndroidBridge.onScraperError('Tombol odds index #$domIdx tidak ditemukan.');
                               return;
                           }
 
-                          window.AndroidBridge.onAutoClickStepLog('🖱️ [STEP 1/3] Mengeklik tombol Odds @${d.targetOdd} (${safePick}) di layar 1xBet...');
+                          window.AndroidBridge.onAutoClickStepLog('🖱️ [STEP 1/3] Mengeklik tombol Odds @$oddVal ($safePick) di layar 1xBet...');
                           triggerHumanTouchAndClick(targetOddBtn);
 
-                          // LANGKAH 2: Tunggu jeda manusia (2-3 detik), lalu isi nominal taruhan di Bet Slip
                           setTimeout(function() {
-                              window.AndroidBridge.onAutoClickStepLog('⌨️ [STEP 2/3] Memasukkan nominal Stake Rp ${d.recommendedStake} ke kolom Bet Slip 1xBet...');
-                              var stakeInput = document.querySelector('$customStakeSelector');
+                              window.AndroidBridge.onAutoClickStepLog('⌨️ [STEP 2/3] Memasukkan nominal Stake Rp $stakeVal ke kolom Bet Slip 1xBet...');
+                              var stakeInput = document.querySelector('input.cpn-bet__input, input[type="number"], .stake-input');
                               if (!stakeInput) {
-                                  // Cari input di dalam area betslip
                                   var allInputs = Array.from(document.querySelectorAll('input'));
                                   stakeInput = allInputs.find(function(inp) {
                                       var ph = (inp.placeholder || '').toLowerCase();
-                                      return inp.type === 'number' || inp.type === 'tel' || ph.includes('stake') || ph.includes('taruhan') || ph.includes('nominal') || ph.includes('jumlah');
+                                      return inp.type === 'number' || inp.type === 'tel' || ph.indexOf('stake') !== -1 || ph.indexOf('taruhan') !== -1;
                                   });
                               }
 
                               if (stakeInput) {
                                   stakeInput.style.outline = '2px solid #38BDF8';
-                                  setReactVueInputValue(stakeInput, '${d.recommendedStake}');
+                                  setReactVueInputValue(stakeInput, '$stakeVal');
                               }
 
-                              // LANGKAH 3: Tunggu jeda manusia (2-3 detik), lalu tekan tombol Place Bet / Pasang Taruhan
                               setTimeout(function() {
                                   window.AndroidBridge.onAutoClickStepLog('🚀 [STEP 3/3] Menekan tombol PASANG TARUHAN (Place Bet) di Bet Slip...');
-                                  var placeBtn = document.querySelector('$customBetBtnSelector');
+                                  var placeBtn = document.querySelector('.cpn-btns__btn, .place-bet-btn, button.bet-submit');
                                   if (!placeBtn) {
                                       var allBtns = Array.from(document.querySelectorAll('button, div[role="button"], a'));
                                       placeBtn = allBtns.find(function(b) {
                                           var t = (b.innerText || '').toLowerCase();
-                                          return t.includes('place bet') || t.includes('pasang taruhan') || t.includes('pasang') || t.includes('bet now');
+                                          return t.indexOf('place bet') !== -1 || t.indexOf('pasang taruhan') !== -1 || t.indexOf('pasang') !== -1;
                                       });
                                   }
 
@@ -1521,12 +1460,12 @@ jobs:
                                   }
 
                                   window.AndroidBridge.onBetPlacedSuccess(
-                                      '${d.match.matchId}',
+                                      '$matchIdVal',
                                       '$safeMatchTitle',
                                       '$safePick',
-                                      ${d.targetOdd},
-                                      ${d.recommendedStake},
-                                      ${d.confidenceScore}
+                                      $oddVal,
+                                      $stakeVal,
+                                      $confVal
                                   );
                               }, $jitter2);
 
@@ -1537,9 +1476,6 @@ jobs:
                   webView?.evaluateJavascript(jsAutoClicker, null)
               }
 
-              // =====================================================================
-              // BUILT-IN 1xBET LIVE MOBILE SANDBOX PAGE (UNTUK UJI COBA LANGSUNG DI APK)
-              // =====================================================================
               private fun loadMockSandbox1xBetPage() {
                   val sandboxHtml = """
                       <!DOCTYPE html>
@@ -1598,7 +1534,7 @@ jobs:
                           <div class="c-events__item" data-match-card="3">
                               <div class="league-bar"><span>⚽ Italia Serie A</span><span>Menit 19' (0-1)</span></div>
                               <div class="teams-row">
-                                  <span class="c-events__team"> Bologna</span>
+                                  <span class="c-events__team">Bologna</span>
                                   <span class="c-events__team">Inter Milan</span>
                               </div>
                               <div class="odds-grid">
@@ -1653,9 +1589,6 @@ jobs:
                   webView?.loadDataWithBaseURL("https://1xbet.com/id/live/football", sandboxHtml, "text/html", "UTF-8", null)
               }
 
-              // =====================================================================
-              // HELPER LOG, SALDO & AUDIO/GETAR
-              // =====================================================================
               private fun appendLog(msg: String) {
                   val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                   terminalLogs.add("[$time] $msg")
@@ -1668,7 +1601,7 @@ jobs:
               private fun updateHeaderBalanceUI() {
                   balanceTv?.text = "Saldo: Rp ${formatRp(currentBalance)}"
                   val sign = if (dailyNetProfit >= 0) "+" else "-"
-                  profitTv?.text = "P/L: ${sign}Rp ${formatRp( kotlin.math.abs(dailyNetProfit) )}"
+                  profitTv?.text = "P/L: ${sign}Rp ${formatRp(abs(dailyNetProfit))}"
                   profitTv?.setTextColor(
                       if (dailyNetProfit >= 0) Color.parseColor("#4ADE80") else Color.parseColor("#F87171")
                   )
